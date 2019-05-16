@@ -131,6 +131,8 @@ func (b *Sweeper) fillSingleByte() {
 // error is for EOF it keeps running until there isn't any data left.
 // ReadSlice returns err != nil if and only if line does not end in delim.
 func (b *Sweeper) ReadSliceWithString(delim string) (line []byte, err error) {
+	b.fillSingleByte() // Fill the buffer with data
+
 	for {
 		// Search buffer.
 		if i := strings.Index(string(b.buf[b.r:]), delim); i >= 0 {
@@ -163,6 +165,7 @@ func (b *Sweeper) ReadSliceWithString(delim string) (line []byte, err error) {
 				err = b.err
 				break
 			}
+
 			b.buf = make([]byte, len(temp))
 
 			copy(b.buf, temp)
