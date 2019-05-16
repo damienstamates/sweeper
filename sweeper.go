@@ -1,6 +1,7 @@
 package sweeper
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"strings"
@@ -13,15 +14,11 @@ const (
 )
 
 var (
-	ErrInvalidUnreadByte = errors.New("sweeper: invalid use of UnreadByte")
-	ErrInvalidUnreadRune = errors.New("sweeper: invalid use of UnreadRune")
-	ErrBufferFull        = errors.New("sweeper: buffer full")
-	ErrNegativeCount     = errors.New("sweeper: negative count")
-
+	ErrBufferFull   = errors.New("sweeper: buffer full")
 	errNegativeRead = errors.New("sweeper: reader returned negative count from Read")
 )
 
-// Reader implements buffering for an io.Reader object.
+// Sweeper implements buffering for an io.Reader object.
 type Sweeper struct {
 	buf          []byte
 	rd           io.Reader // reader provided by the client
@@ -96,7 +93,6 @@ func (b *Sweeper) fillSingleByte() {
 
 		// Just set the read and write positions to 0 so then it can scan
 		// from the beginning of the slice when it begins again.
-		// b.w = 0
 		b.w = len(temp) - 1
 		b.r = 0
 	}
@@ -115,8 +111,6 @@ func (b *Sweeper) fillSingleByte() {
 			panic(errNegativeRead)
 		}
 
-		// println(b.buf[b.w:])
-
 		b.w += n
 		if err != nil {
 			b.err = err
@@ -132,26 +126,18 @@ func (b *Sweeper) fillSingleByte() {
 // ReadSliceWithString reads until the first occurrence of delim in the input,
 // returning a slice pointing at the bytes in the buffer.
 // The bytes stop being valid at the next read.
-// If ReadSlice encounters an error before finding a delimiter,
-// it returns all the data in the buffer and the error itself (often io.EOF).
-// ReadSlice fails with error ErrBufferFull if the buffer fills without a delim.
-// Because the data returned from ReadSlice will be overwritten
-// by the next I/O operation, most clients should use
-// ReadBytes or ReadString instead.
+// If ReadSliceWithString encounters an error before finding a delimiter,
+// it returns all the data in the buffer and the error itself. Although is the
+// error is for EOF it keeps running until there isn't any data left.
 // ReadSlice returns err != nil if and only if line does not end in delim.
 func (b *Sweeper) ReadSliceWithString(delim string) (line []byte, err error) {
-	var s = -1
 	for {
 		// Search buffer.
-		// Change made to ReadSlice to accept string ----------------------- Damien S.
-		if s >= 0 {
-			if i := strings.Index(string(b.buf[b.r+s:]), delim); i >= 0 {
-				line = b.buf[:i+len(delim)]
-				// b.r = b.w
-				b.r = i + len(delim)
+		if i := strings.Index(string(b.buf[b.r:]), delim); i >= 0 {
+			line = b.buf[:i+len(delim)]
+			b.r = i + len(delim)
 
-				break
-			}
+			break
 		}
 
 		// Pending error?
@@ -166,19 +152,12 @@ func (b *Sweeper) ReadSliceWithString(delim string) (line []byte, err error) {
 		// to the length of the buffer, because b.r is always zero and never
 		// incremented since we are rescanning all of the buffer all of the time.
 
-		s++
-
 		if b.err != io.EOF {
 			b.fillSingleByte()
 		} else {
 			temp := b.buf[b.r:]
-			var checkNil []bool
-			for _, tempByte := range temp {
-				if tempByte == 0 {
-					checkNil = append(checkNil, true)
-				}
-			}
-			if len(checkNil) == len(temp) {
+			var checkNil = make([]byte, len(temp))
+			if bytes.Equal(temp, checkNil) {
 				line = b.buf
 				b.r = b.w
 				err = b.err
@@ -189,7 +168,6 @@ func (b *Sweeper) ReadSliceWithString(delim string) (line []byte, err error) {
 			copy(b.buf, temp)
 
 			b.r = 0
-			s = 0
 		}
 	}
 
