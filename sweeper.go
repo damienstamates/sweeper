@@ -1,10 +1,10 @@
 package sweeper
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"strings"
+	// "bytes"
 )
 
 const (
@@ -78,10 +78,7 @@ func (b *Sweeper) readErr() error {
 }
 
 func (b *Sweeper) fillSingleByte() {
-	temp := b.buf
-	b.buf = make([]byte, len(temp)+1)
-
-	copy(b.buf, temp)
+	b.buf = append(b.buf, make([]byte, 1)...)
 
 	// if the read position is greater than zero then the delimiter was found.
 	if b.r > 0 {
@@ -123,6 +120,15 @@ func (b *Sweeper) fillSingleByte() {
 	b.err = io.ErrNoProgress
 }
 
+func (b *Sweeper) isZero(s *[]byte) bool {
+	for _, v := range *s {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // ReadSliceWithString reads until the first occurrence of delim in the input,
 // returning a slice pointing at the bytes in the buffer.
 // The bytes stop being valid at the next read.
@@ -157,18 +163,14 @@ func (b *Sweeper) ReadSliceWithString(delim string) (line []byte, err error) {
 		if b.err != io.EOF {
 			b.fillSingleByte()
 		} else {
-			temp := b.buf[b.r:]
-			var checkNil = make([]byte, len(temp))
-			if bytes.Equal(temp, checkNil) {
+			if b.isZero(&b.buf) {
 				line = b.buf
 				b.r = b.w
 				err = b.err
 				break
 			}
 
-			b.buf = make([]byte, len(temp))
-
-			copy(b.buf, temp)
+			b.buf = b.buf[b.r:]
 
 			b.r = 0
 		}
