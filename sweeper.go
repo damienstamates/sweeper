@@ -8,7 +8,7 @@ import (
 
 const (
 	defaultBufSize           = 256
-	minReadBufferSize        = 1
+	minReadBufferSize        = 16
 	maxConsecutiveEmptyReads = 100
 )
 
@@ -19,6 +19,7 @@ var (
 // Sweeper implements buffering for an io.Reader object.
 type Sweeper struct {
 	buf  []byte
+	bufSize int
 	rd   io.Reader // reader provided by the client
 	r, w int       // buf read and write positions
 	err  error
@@ -31,13 +32,14 @@ func NewSweeperSize(rd io.Reader, size int) *Sweeper {
 	// Is it already a Reader?
 	s, ok := rd.(*Sweeper)
 	if ok && len(s.buf) >= size {
+		s.bufSize = size
 		return s
 	}
 	if size < minReadBufferSize {
 		size = minReadBufferSize
 	}
 	r := new(Sweeper)
-	r.reset(make([]byte, size), rd)
+	r.reset(make([]byte, size), rd, size)
 	return r
 }
 
@@ -55,13 +57,14 @@ func (s *Sweeper) Buffered() int { return s.w - s.r }
 // Reset discards any buffered data, resets all state, and switches
 // the buffered reader to read from r.
 func (s *Sweeper) Reset(r io.Reader) {
-	s.reset(s.buf, r)
+	s.reset(s.buf, r, s.bufSize)
 }
 
-func (s *Sweeper) reset(buf []byte, r io.Reader) {
+func (s *Sweeper) reset(buf []byte, r io.Reader, size int) {
 	*s = Sweeper{
 		buf: buf,
 		rd:  r,
+		bufSize: size,
 	}
 }
 
@@ -82,19 +85,14 @@ func (s *Sweeper) isBufZero() bool {
 }
 
 func (s *Sweeper) fill() {
-	s.buf = append(s.buf, make([]byte, 1)...)
-
 	// if the read position is greater than zero then the delimiter was found.
 	if s.r > 0 {
-		// Since the delimiter was found we may reset the buffer back to its
-		// original size to clean up.
-		temp := s.buf[s.r:]
-		s.buf = make([]byte, defaultBufSize)
-		copy(s.buf, temp)
-
-		// Just set the read and write positions to 0 so then it can scan
-		// from the beginning of the slice when it begins again.
-		s.w = len(temp) - 1
+		// Set the beginning of buf to the last data and then fill the rest
+		// with zeroed data to match the buffer size goal.
+		s.buf = append(s.buf[s.r:], make([]byte, s.bufSize-(s.w-s.r))...)
+		
+		// Set the write to the end of the last read data, and read to zero.
+		s.w = s.w-s.r
 		s.r = 0
 	}
 
@@ -167,8 +165,6 @@ func (s *Sweeper) ReadSliceWithString(delim []byte) (line []byte, err error) {
 			}
 
 			s.buf = s.buf[s.r:]
-
-			s.r = 0
 		}
 	}
 
